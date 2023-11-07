@@ -1,0 +1,459 @@
+---
+title: "615 Mid Term Projet"
+author: "Febriany Lete"
+format: html
+editor: visual
+---
+
+![](images/boy-walking-through-flooded-creek-wearing-gumboots.jpg)
+
+## FLOOD EVENTS IN THE USA IN 2020-2021
+
+\-\--
+
+## Introduction
+
+One of the most frequent natural disasters in the United States of America is flooding. They emerge from the excess of water on ordinarily dry ground. Floods are caused by a variety of phenomena, such as hurricanes and tropical storms, levee or dam failures, and flash floods, which happen quickly after heavy rains for several minutes or hours.
+
+Floods can occur anywhere and vary in size and duration, but they are more likely to occur in coastal locations, especially during hurricane season. Small rivers, slopes, and streams that might not seem dangerous in dry times can flood.
+
+Floods can cause varying degrees of physical destruction; some can sweep away everything in their path, including vehicles, houses, bridges, and even individuals who might be trapped or wading through the water. Furthermore, dangerous flood conditions can result in a large financial loss.
+
+## Exploratory Data Analysis
+
+Data cleaning, also known as data cleansing, is the process of identifying and correcting errors, inconsistencies, and inaccuracies in data set to improve their quality and reliability. It is a crucial step in data preparation and analysis, as high-quality data is essential for making informed decisions and obtaining meaningful insights. Data cleaning involves various tasks, including removing duplicates, handling missing values, standardizing data, correcting inaccuracies, validating data, dealing with outlier, handling data discrepancies, and transforming data. Effective data cleaning is essential for ensuring that the results of data analysis and machine learning models are accurate and reliable. It often requires a combination of automated tools and manual intervention to achieve the desired data quality.
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+```
+
+### Data Cleaning and Organization for NOAA Storm Events Details 2020 and 2021
+
+First of all, we can start with load the Storm Event Details 2020 and 2021. Next, we can merge those data set into one and separate flood even type to another dataset.
+
+```{r}
+eventdetails_2020 <- read_csv("StormEvents_2020.csv")
+eventdetails_2021 <- read_csv("StormEvents_2021.csv")
+
+merged_event <- bind_rows(eventdetails_2020, eventdetails_2021)
+
+flood <- merged_event %>%
+  filter(EVENT_TYPE %in% c("Coastal Flood", "Flood", "Flash Flood", "Lakeshore Flood"))
+
+```
+
+Next step, we can remove columns with a single value in all columns
+
+```{r}
+drop_one_value_col <- function(df){
+drop <- NULL
+for(i in 1:dim(df)[2]){
+if((df |> distinct(df[,i]) |> count()) == 1){
+drop = c(drop, i)
+} }
+
+if(is.null(drop)){return("none")}else{
+
+   print("Columns dropped:")
+   print(colnames(df)[drop])
+   flood <- df[, -1*drop]
+   }
+}
+
+flood <- drop_one_value_col(flood)
+
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
+
+Next, let's standardize the variable "DAMAGE_PROPERTY" and "DAMAGE_CROPS" because some values are in thousand but others are in millions.
+
+```{r}
+# Convert from million (M) to thousand (K)
+convert_to_K <- function(concentration_str) {
+  if (grepl("M$", concentration_str)) {
+    # If the concentration is in million (M), convert to thousand (K)
+    value_numeric <- as.numeric(sub("M", "", concentration_str))
+    value_K <- value_numeric * 1000
+  } else if (grepl("K$", concentration_str)) {
+    # If the concentration is already in thousand (K), remove "K" and convert to numeric
+    value_K <- as.numeric(sub("K", "", concentration_str))
+  } else {
+    # If it's neither "M" nor "K," return NA or handle as needed
+    value_K <- NA
+  }
+  return(paste0(value_K, "K"))
+}
+
+flood$NEW_DAMAGE_PROPERTY <- sapply(flood$DAMAGE_PROPERTY, convert_to_K)
+flood$NEW_DAMAGE_CROPS <- sapply(flood$DAMAGE_CROPS, convert_to_K)
+
+```
+
+### Data Cleaning and Organization for FEMA V1 and V2
+
+First, we can load the V1 and V2 FEMA datasets.
+
+```{r}
+Fema_V1 <- read_csv("Fema_V1.csv")
+Fema_V2 <- read_csv("Fema_V2.csv")
+```
+
+Next, we can merge the Fema Dataset by the disasterNumber and choose only "Flood" incident type. But, because some observations are missing when we merge Fema V1 and V2, let's keep Fema V2 flood into another dataset. We do not need to remove columns with a single value in all columns in these dataset.
+
+```{r}
+Fema_V1V2 <- left_join(Fema_V1, Fema_V2, by = "disasterNumber")
+
+Flood_V1V2 <- Fema_V1V2 |> filter(incidentType == "Flood")
+
+Flood_V2 <- Fema_V2 |> filter(incidentType == "Flood")
+
+```
+
+After this we can select the Flood Events that happened in 2020 and 2021 by take the year from variable incidentBeginDate.
+
+```{r}
+Flood_V1V2$incidentYear <- substr(Flood_V1V2$incidentBeginDate, 1, 4)
+Flood_V2$incidentYear <- substr(Flood_V2$incidentBeginDate, 1, 4)
+
+Flood2021_V1V2 <- Flood_V1V2 %>%
+  filter(incidentYear %in% c("2020", "2021"))
+
+Flood2021_V2 <- Flood_V2 %>%
+  filter(incidentYear %in% c("2020", "2021"))
+```
+
+### Data Cleaning and Data Organization Census Dataset
+
+First, we can load the census dataset, I choose the poverty data.
+
+```{r}
+census2020_poverty <- read.csv("ACSST5Y2020.S1701-Data.csv")
+census2021_poverty <- read.csv("ACSST5Y2021.S1701-Data.csv")
+```
+
+We just need the total population under poverty so I will deleted the other columns.
+
+```{r}
+census2020_poverty <- census2020_poverty[, c("NAME", "S1701_C01_001E", "S1701_C02_001E")]
+census2021_poverty <- census2021_poverty[, c("NAME", "S1701_C01_001E", "S1701_C02_001E")]
+```
+
+Next, we need to deleted the first row because it is just the explanations of the columns.
+```{r}
+census2020_poverty <- census2020_poverty[-1, ]
+census2021_poverty <- census2021_poverty[-1, ]
+```
+
+Then, we need to make state column
+
+```{r}
+library(stringr)
+# For data 2020
+census2020_poverty$STATE <- str_extract(census2020_poverty$NAME, "[A-Za-z ]+$")
+census2020_poverty$STATE <- trimws(census2020_poverty$STATE)
+
+#for data 2021
+census2021_poverty$STATE <- str_extract(census2021_poverty$NAME, "[A-Za-z ]+$")
+census2021_poverty$STATE <- trimws(census2021_poverty$STATE)
+
+```
+
+Lets count the total population and population below poverty
+```{r}
+# 2020
+census2020_poverty <- census2020_poverty %>%
+  mutate(Total_Pop = as.numeric(S1701_C01_001E),
+         Pop_Poverty = as.numeric(S1701_C02_001E))
+
+counts2020_pov <- census2020_poverty %>%
+  group_by(STATE) %>%
+  summarize(Total_Pop = sum(Total_Pop, na.rm = TRUE),
+            Pop_Poverty = sum(Pop_Poverty, na.rm = TRUE))
+
+# 2021
+census2021_poverty <- census2021_poverty %>%
+  mutate(Total_Pop = as.numeric(S1701_C01_001E),
+         Pop_Poverty = as.numeric(S1701_C02_001E))
+
+counts2021_pov <- census2021_poverty %>%
+  group_by(STATE) %>%
+  summarize(Total_Pop = sum(Total_Pop, na.rm = TRUE),
+            Pop_Poverty = sum(Pop_Poverty, na.rm = TRUE))
+```
+
+
+Then lets compute the poverty rate variable because it has strong relationship with aid distributions.
+
+```{r}
+counts2020_pov$Pov_Rate <- counts2020_pov$Pop_Poverty/counts2020_pov$Total_Pop*100
+counts2021_pov$Pov_Rate <- counts2021_pov$Pop_Poverty/counts2021_pov$Total_Pop*100
+```
+
+Next, let's load the population data from census dataset
+```{r}
+census2020_pop <- read.csv("ACSDP5Y2020.DP05-Data.csv")
+census2021_pop <- read.csv("ACSDP5Y2021.DP05-Data.csv")
+```
+
+Let's keep only the columns we needed. So we can deleted the population by age group and gender
+```{r}
+census2020_pop <- census2020_pop[, c("NAME", "DP05_0001E")]
+census2021_pop <- census2021_pop[, c("NAME", "DP05_0001E")]
+```
+
+Next, we need to deleted the first row because it is just the explanations of the columns.
+
+```{r}
+census2020_pop <- census2020_pop[-1, ]
+census2021_pop <- census2021_pop[-1, ]
+```
+
+Then, compute the state variable.
+
+```{r}
+# For data 2020
+census2020_pop$STATE <- str_extract(census2020_pop$NAME, "[A-Za-z ]+$")
+census2020_pop$STATE <- trimws(census2020_pop$STATE)
+
+#for data 2021
+census2021_pop$STATE <- str_extract(census2021_pop$NAME, "[A-Za-z ]+$")
+census2021_pop$STATE <- trimws(census2021_pop$STATE)
+```
+
+
+### Merge the NOAA Flood Dataset and Fema Flood DataSet
+
+Next step, we need to merge the NOAA Flood Dataset and Fema Flood Dataset.The key variables we can use is ID area by combine the FIPS State Code and FIPS County Code. But, first we need to standardize the values.
+
+```{r}
+flood$STATE_FIPS <- sprintf("%02d", flood$STATE_FIPS)
+flood$CZ_FIPS <- sprintf("%03d", flood$CZ_FIPS)
+```
+
+Then compute a new variable for each dataset named "ID_Area" as a key variable because the same number of FIPS County Code can be repeated for different State. Because, the 2020-2021 flood events in Fema merged DataSet already have same observation with the V2 Dataset we can choose one of them, which is the merged data.
+
+```{r}
+flood$ID_Area <- paste0(flood$STATE_FIPS, flood$CZ_FIPS)
+Flood2021_V1V2$ID_Area <- paste0(Flood2021_V1V2$fipsStateCode, Flood2021_V1V2$fipsCountyCode)
+```
+
+Now we can merge the NOAA Flood Dataset and Fema Flood Dataset. NOAA Flood will be the main data. So when their ID_Area as the key variable match, we copy the all variables from "Flood2021_V1V2" to "flood"
+
+```{r}
+Flood_Merged <- left_join(flood, Flood2021_V1V2, by = "ID_Area")
+
+```
+
+We can ignore the warning because the flood events can occur more than one times in the same State and County.
+
+### Merge the Population dan Poverty Data From the Census Dataset
+
+For analysis we need to merge the population and poverty data so we can compute the poverty rate by state.
+
+```{r}
+census2020 <- left_join(census2020_pop, census2020_poverty, by = "NAME")
+census2021 <- left_join(census2021_pop, census2021_poverty, by = "NAME")
+
+census2020 <- na.omit(census2020)
+census2021 <- na.omit(census2021)
+
+colnames(census2020) <- c("Name", "Total_Pop", "State", "Pop_Poverty", "State2")
+colnames(census2021) <- c("Name", "Total_Pop", "State", "Pop_Poverty", "State2")
+
+```
+
+
+## Analysis
+
+```{r}
+# Check for duplicated values in the "EVENT_ID" column of the "flood" data frame
+duplicates <- flood$EVENT_ID[duplicated(flood$EVENT_ID)]
+
+# View the duplicated values
+print(duplicates)
+```
+```{r}
+# Calculate the total EVENT_ID by count for each state
+state_counts <- aggregate(EVENT_ID ~ STATE + YEAR, data = flood, FUN = length)
+
+# Create a plot
+ggplot(state_counts, aes(x = STATE, y = EVENT_ID, color = YEAR)) +
+  geom_point() +
+  labs(title = "Total EVENT_ID by State",
+       x = "State", y = "Total EVENT_ID") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+From the graph above, we can see that from 2020 to 2021 in the USA, most states experienced fewer than 200 total flood events. Meanwhile, flood events above 200 times mostly occurred in 2021.
+
+```{r}
+# Create a new data frame that counts each event as 1
+count_data <- data.frame(
+  STATE = flood$STATE,
+  YEAR = flood$YEAR,
+  Count = 1
+)
+
+# Filter the data for years 2020 and 2021
+count_data <- count_data[count_data$YEAR %in% c(2020, 2021), ]
+
+# Calculate the sum of counts for each state and year
+state_year_counts <- aggregate(Count ~ STATE + YEAR, data = count_data, FUN = sum)
+
+# Reshape the data for grouped bar plotting
+library(reshape2)
+melted_data <- dcast(state_year_counts, STATE ~ YEAR, value.var = "Count")
+
+# Add a new column for the total count of 2020 and 2021
+melted_data$TotalCount <- melted_data$`2020` + melted_data$`2021`
+
+# Sort the data by the total count in descending order
+sorted_data <- melted_data[order(melted_data$TotalCount, decreasing = TRUE), ]
+
+# Select the top ten states
+top_ten_states <- head(sorted_data, 10)
+
+print(top_ten_states)
+```
+
+From that table, we can see that Some states experienced a decrease in flood events during 2020 - 2021 while others experienced an increase. However, Virginia possessed the highest number in total of flood events for 2020 - 2021.
+
+```{r}
+# Specify the states you want to include
+top_ten <- c("VIRGINIA", "MISSOURI", "TEXAS", "KENTUCKY", "NEW YORK", "GEORGIA", "MARYLAND", "NORTH CAROLINA", "PENNSYLVANIA", "FLORIDA")
+
+# Filter the data for the selected states and the year 2020
+flood_subset <- flood[flood$YEAR == 2020 & flood$STATE %in% top_ten, ]
+
+# Create a bar graph with ggplot2, dodged by FLOOD_CAUSE
+ggplot(flood_subset, aes(x = STATE, fill = FLOOD_CAUSE)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Top Ten States by FLOOD_CAUSE in 2020",
+       x = "State", y = "Count") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+```
+```{r}
+top_ten <- c("VIRGINIA", "MISSOURI", "TEXAS", "KENTUCKY", "NEW YORK", "GEORGIA", "MARYLAND", "NORTH CAROLINA", "PENNSYLVANIA", "FLORIDA")
+
+# Filter the data for the selected states and the year 2021
+flood_subset <- flood[flood$YEAR == 2021 & flood$STATE %in% top_ten, ]
+
+# Create a bar graph with ggplot2, dodged by FLOOD_CAUSE
+ggplot(flood_subset, aes(x = STATE, fill = FLOOD_CAUSE)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Top Ten States by FLOOD_CAUSE in 2021",
+       x = "State", y = "Count") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+From the graph, we can say that the majority flood events in the USA 2020-2021 caused by heavy rain. Lets find out the duration of flood for each state.
+
+```{r}
+flood$DURATIONS <- flood$END_DAY - flood$BEGIN_DAY
+```
+
+Now Let's find the relationship within the duration of flood and damage caused by it.
+
+```{r}
+flood$DAMAGE_PROPERTY <- as.numeric(gsub("K", "", flood$DAMAGE_PROPERTY, fixed = TRUE))
+flood$DAMAGE_CROPS <- as.numeric(gsub("K", "", flood$DAMAGE_CROPS, fixed = TRUE))
+```
+
+```{r}
+ggplot(flood, aes(x = DURATIONS, y = DAMAGE_PROPERTY)) +
+  geom_point() +
+  labs(title = "DAMAGE_PROPERTY by DURATION",
+       x = "Duration (in day)", y = "DAMAGE_PROPERTY (in thousand)")
+```
+```{r}
+ggplot(flood, aes(x = DURATIONS, y = DAMAGE_CROPS)) +
+  geom_point() +
+  labs(title = "DAMAGE_PROPERTY by DURATION",
+       x = "Duration (in day)", y = "DAMAGE_CROPS (in thousand)")
+```
+From this two figures, we see that How long the flood lasts does not affect the extent of property or crops losses. Floods that occur and end on the same day cause even greater losses than floods that last for more than a week.
+
+Let's find out which states have the greatest property and crops losses due to flooding in the USA.
+
+```{r}
+top_ten <- c("VIRGINIA", "MISSOURI", "TEXAS", "KENTUCKY", "NEW YORK", "GEORGIA", "MARYLAND", "NORTH CAROLINA", "PENNSYLVANIA", "FLORIDA")
+
+flood_subset1 <- flood[flood$STATE %in% top_ten, ]
+
+ggplot(flood_subset1, aes(x = STATE, y = DAMAGE_PROPERTY)) +
+  geom_col(position = "dodge") +
+  labs(title = "DAMAGE_PROPERTY by STATE and YEAR",
+       x = "State", y = "DAMAGE_PROPERTY") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+Something interesting with this graph, if we look back at our first table which contains the top ten states with the highest number of flood events we can see that Missouri possesses the second place after Virginia but in this figures, Missouri possesses the lowest number of property loss caused by flood.
+
+```{r}
+top_ten <- c("VIRGINIA", "MISSOURI", "TEXAS", "KENTUCKY", "NEW YORK", "GEORGIA", "MARYLAND", "NORTH CAROLINA", "PENNSYLVANIA", "FLORIDA")
+
+flood_subset1 <- flood[flood$STATE %in% top_ten, ]
+
+ggplot(flood_subset1, aes(x = STATE, y = DAMAGE_CROPS)) +
+  geom_col(position = "dodge") +
+  labs(title = "DAMAGE CROPS by STATE and YEAR",
+       x = "State", y = "Damage Crops") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+Next, I am interested to see the amount of assistance provided that can be obtained from the FEMA dataset compare to the damage they got from flood events by NOAA Dataset.
+
+```{r}
+ggplot(Flood_Merged, aes(x = STATE, y = totalAmountHaApproved)) +
+  geom_point(na.rm = TRUE) +
+  labs(title = "Total Amount (Ha) Approved by State",
+       x = "State", y = "Total Amount (Ha) Approved (dollars)") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+The graph above shows total amount approved for Housing Assistance (HA) from the Individual and Households Program (IHP) in dollars by state. From that graph, we can see that only six states got approval for their disaster assistance applications, in this case flood disaster. However, the States got assistance seems different with the states that got highest damage property. One of the states receiving aid is Kentucky, which is one of the states that experienced the highest crop damage. Therefore let's simulate damage_crop by state.
+
+```{r}
+ggplot(flood, aes(x = STATE, y = DAMAGE_CROPS)) +
+  geom_point(na.rm = TRUE) +
+  labs(title = "Damage Crops by State",
+       x = "State", y = "Damage Crops (dollars)") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+It seems like we need to find another relationship for the assistance given by FEMA. Let's try the duration variable, maybe state who got the assistance because they experienced a long duration of flood events.
+
+```{r}
+ggplot(flood, aes(x = STATE, y = DURATIONS)) +
+  geom_point(na.rm = TRUE) +
+  labs(title = "Floods Durations by State",
+       x = "State", y = "Flood Durations (day)") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+So there is no connections between the aid given by FEMA with flood duration. 
+One key factor that can influence FEMA's response and aid allocation is the poverty rate of the state or region affected by the disaster. 
+
+```{r}
+# Sort the data by Pov_Rate in descending order and select the top 15 rows
+top_15_states_poverty <- counts2020_pov %>%
+  arrange(desc(Pov_Rate)) %>%
+  head(15)
+
+# Create a bar graph
+ggplot(top_15_states_poverty, aes(x = reorder(STATE, -Pov_Rate), y = Pov_Rate)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(title = "Top 15 States with the Highest Pov_Rate",
+       x = "State", y = "Pov_Rate") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+Finally, this graph shows some meaningful insight. Of the 6 countries receiving assistance from FEMA, 4 of them are states with the highest poverty rates in the USA which are Louisianna, West Virginia, Kentucky, and Tennessee.
+
+### Conclusion
+
+Flood events in the USA are a common and recurring natural disaster that can have significant impacts on communities, infrastructure, and the economy. Flooding in the USA can be caused by various factors, including heavy rainfall, storm surges, snowmelt, hurricanes, tropical storms, dam failures, and prolonged periods of rain. Coastal areas are particularly vulnerable to storm surges and coastal flooding, while inland areas can experience river and flash flooding. Some floods in the USA even occur for 30 days.
+
+FEMA (Federal Emergency Management Agency) provides aid and assistance to communities and states in the United States that are affected by disasters and emergencies. The level and type of assistance provided by FEMA are determined by a variety of factors, including the nature and severity of the disaster, the impact on affected communities, and the resources available.
+FEMA takes into account the socioeconomic vulnerability of an area when assessing disaster risk and preparedness. States or communities with higher poverty rates are often more vulnerable to the impacts of disasters, as they may have fewer resources, less access to healthcare, and limited capacity to respond and recover. After a disaster occurs, FEMA conducts needs assessments to determine the extent of the damage and the needs of the affected population. These assessments consider factors like the number of affected individuals, the level of destruction, and the economic impact, which can be linked to the poverty rate.
+
